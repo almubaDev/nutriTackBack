@@ -1,3 +1,4 @@
+# ai_analysis/views.py
 from rest_framework import generics, status
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import IsAuthenticated
@@ -16,6 +17,7 @@ from .serializers import (
 )
 from foods.models import ScannedFood
 from foods.serializers import ScannedFoodCreateSerializer
+from .gemini_client import GeminiClient
 
 
 class ImageAnalysisListView(generics.ListAPIView):
@@ -59,77 +61,109 @@ def analyze_food_image(request):
     try:
         start_time = time.time()
         
-        # TODO: Aquí iría la integración real con Gemini
-        # Por ahora simulamos la respuesta
-        ai_response = simulate_gemini_analysis(image_data)
+        # Usar Gemini real
+        gemini_client = GeminiClient()
+        ai_result = gemini_client.analyze_food_image(image_data, image_format)
         
         processing_time = time.time() - start_time
         
-        # Actualizar análisis con resultados
-        analysis.status = 'completed'
-        analysis.processing_time_seconds = processing_time
-        analysis.raw_ai_response = ai_response
-        analysis.gemini_request_tokens = ai_response.get('request_tokens', 0)
-        analysis.gemini_response_tokens = ai_response.get('response_tokens', 0)
-        analysis.gemini_cost_usd = ai_response.get('cost_usd', 0)
-        analysis.save()
-        
-        # Crear ScannedFood si el análisis fue exitoso
-        if ai_response.get('food_name') and ai_response['food_name'] != 'No identificado':
-            scanned_food_data = {
-                'ai_identified_name': ai_response['food_name'],
-                'serving_size': ai_response.get('serving_size', ''),
-                'calories_per_serving': ai_response.get('calories_per_serving'),
-                'protein_per_serving': ai_response.get('protein_per_serving'),
-                'carbs_per_serving': ai_response.get('carbs_per_serving'),
-                'fat_per_serving': ai_response.get('fat_per_serving'),
-                'calories_per_100g': ai_response.get('calories_per_100g'),
-                'protein_per_100g': ai_response.get('protein_per_100g'),
-                'carbs_per_100g': ai_response.get('carbs_per_100g'),
-                'fat_per_100g': ai_response.get('fat_per_100g'),
-                'raw_ai_response': ai_response
-            }
+        if ai_result['success']:
+            # Actualizar análisis con resultados exitosos
+            analysis.status = 'completed'
+            analysis.processing_time_seconds = processing_time
+            analysis.raw_ai_response = ai_result.get('raw_response')
+            analysis.gemini_request_tokens = ai_result.get('input_tokens', 0)
+            analysis.gemini_response_tokens = ai_result.get('output_tokens', 0)
+            analysis.gemini_cost_usd = ai_result.get('cost_usd', 0)
+            analysis.save()
             
-            scanned_serializer = ScannedFoodCreateSerializer(
-                data=scanned_food_data,
-                context={'request': request}
-            )
-            if scanned_serializer.is_valid():
-                scanned_food = scanned_serializer.save()
+            food_data = ai_result['food_data']
+            
+            # Crear ScannedFood si se identificó el alimento
+            if (food_data.get('food_name') and 
+                food_data['food_name'] != 'No identificado' and 
+                food_data.get('confidence') != 'bajo'):
                 
-                # Actualizar estadísticas de uso
-                update_usage_stats(user, analysis, success=True)
+                # Preparar datos para ScannedFood
+                nutrition_serving = food_data.get('nutrition_per_serving', {})
+                nutrition_100g = food_data.get('nutrition_per_100g', {})
+                
+                scanned_food_data = {
+                    'ai_identified_name': food_data['food_name'],
+                    'serving_size': food_data.get('serving_size', ''),
+                    'calories_per_serving': nutrition_serving.get('calories'),
+                    'protein_per_serving': nutrition_serving.get('protein_g'),
+                    'carbs_per_serving': nutrition_serving.get('carbs_g'),
+                    'fat_per_serving': nutrition_serving.get('fat_g'),
+                    'calories_per_100g': nutrition_100g.get('calories'),
+                    'protein_per_100g': nutrition_100g.get('protein_g'),
+                    'carbs_per_100g': nutrition_100g.get('carbs_g'),
+                    'fat_per_100g': nutrition_100g.get('fat_g'),
+                    'raw_ai_response': ai_result
+                }
+                
+                scanned_serializer = ScannedFoodCreateSerializer(
+                    data=scanned_food_data,
+                    context={'request': request}
+                )
+                
+                if scanned_serializer.is_valid():
+                    scanned_food = scanned_serializer.save()
+                    
+                    # Actualizar estadísticas de uso
+                    update_usage_stats(user, analysis, success=True)
+                    
+                    return Response({
+                        'analysis': ImageAnalysisSerializer(analysis).data,
+                        'scanned_food': scanned_serializer.data,
+                        'message': 'Análisis completado exitosamente'
+                    }, status=status.HTTP_201_CREATED)
+                else:
+                    # Si hay error en el serializer, aún devolvemos el análisis
+                    update_usage_stats(user, analysis, success=True)
+                    return Response({
+                        'analysis': ImageAnalysisSerializer(analysis).data,
+                        'message': 'Alimento identificado pero con problemas en los datos nutricionales',
+                        'food_data': food_data
+                    }, status=status.HTTP_200_OK)
+            else:
+                # No se pudo identificar el alimento
+                analysis.status = 'failed'
+                analysis.error_message = food_data.get('error', 'No se pudo identificar el alimento')
+                analysis.save()
+                
+                update_usage_stats(user, analysis, success=False)
                 
                 return Response({
                     'analysis': ImageAnalysisSerializer(analysis).data,
-                    'scanned_food': scanned_serializer.data,
-                    'message': 'Análisis completado exitosamente'
-                }, status=status.HTTP_201_CREATED)
-        
-        # Si llegamos aquí, el análisis no fue exitoso
-        analysis.status = 'failed'
-        analysis.error_message = 'No se pudo identificar el alimento'
-        analysis.save()
-        
-        update_usage_stats(user, analysis, success=False)
-        
-        return Response({
-            'analysis': ImageAnalysisSerializer(analysis).data,
-            'message': 'No se pudo identificar el alimento en la imagen'
-        }, status=status.HTTP_200_OK)
-        
+                    'message': 'No se pudo identificar el alimento en la imagen'
+                }, status=status.HTTP_200_OK)
+        else:
+            # Error en el análisis de Gemini
+            analysis.status = 'error'
+            analysis.error_message = ai_result.get('error', 'Error en el análisis de IA')
+            analysis.processing_time_seconds = processing_time
+            analysis.save()
+            
+            update_usage_stats(user, analysis, success=False)
+            
+            return Response({
+                'analysis': ImageAnalysisSerializer(analysis).data,
+                'error': 'Error en el análisis de la imagen'
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+            
     except Exception as e:
-        # Manejar errores
+        # Manejar errores generales
         analysis.status = 'error'
         analysis.error_message = str(e)
-        analysis.processing_time_seconds = time.time() - start_time
+        analysis.processing_time_seconds = time.time() - start_time if 'start_time' in locals() else 0
         analysis.save()
         
         update_usage_stats(user, analysis, success=False)
         
         return Response({
             'analysis': ImageAnalysisSerializer(analysis).data,
-            'error': 'Error en el análisis de la imagen'
+            'error': f'Error inesperado: {str(e)}'
         }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 
@@ -197,48 +231,6 @@ def usage_stats_by_date(request):
         'period': f'{start_date} - {end_date}',
         'stats': serializer.data
     })
-
-
-def simulate_gemini_analysis(image_data):
-    """Función temporal para simular respuesta de Gemini"""
-    # TODO: Reemplazar con integración real de Gemini
-    import random
-    
-    foods = [
-        {
-            'food_name': 'Manzana Roja',
-            'serving_size': '1 manzana mediana (150g)',
-            'calories_per_serving': 80,
-            'protein_per_serving': 0.3,
-            'carbs_per_serving': 21,
-            'fat_per_serving': 0.2,
-            'calories_per_100g': 52,
-            'protein_per_100g': 0.2,
-            'carbs_per_100g': 14,
-            'fat_per_100g': 0.1,
-        },
-        {
-            'food_name': 'Pan Integral',
-            'serving_size': '1 rebanada (30g)',
-            'calories_per_serving': 80,
-            'protein_per_serving': 3.5,
-            'carbs_per_serving': 14,
-            'fat_per_serving': 1.2,
-            'calories_per_100g': 265,
-            'protein_per_100g': 12,
-            'carbs_per_100g': 47,
-            'fat_per_100g': 4,
-        }
-    ]
-    
-    selected_food = random.choice(foods)
-    selected_food.update({
-        'request_tokens': random.randint(1500, 2000),
-        'response_tokens': random.randint(200, 400),
-        'cost_usd': random.uniform(0.001, 0.003),
-    })
-    
-    return selected_food
 
 
 def update_usage_stats(user, analysis, success=True):

@@ -1,13 +1,14 @@
 from pathlib import Path
 from datetime import timedelta
+import os
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 
-SECRET_KEY = 'django-insecure-9kva3o4(!)h_ve3$$($)wj*pi$&qq(uo6hsw+2yqa(%ncqw9me'
+SECRET_KEY = os.getenv('SECRET_KEY', 'django-insecure-9kva3o4(!)h_ve3$$($)wj*pi$&qq(uo6hsw+2yqa(%ncqw9me')
 
-DEBUG = True
+DEBUG = os.getenv('DEBUG', 'True').lower() == 'true'
 
-ALLOWED_HOSTS = []
+ALLOWED_HOSTS = os.getenv('ALLOWED_HOSTS', 'localhost,127.0.0.1,0.0.0.0').split(',')
 
 INSTALLED_APPS = [
     'django.contrib.admin',
@@ -20,7 +21,7 @@ INSTALLED_APPS = [
     
     # Third party apps
     'rest_framework',
-    'rest_framework.authtoken',  # AGREGAR ESTA LÍNEA
+    'rest_framework.authtoken',
     'rest_framework_simplejwt',
     'corsheaders',
     'allauth',
@@ -58,13 +59,13 @@ SIMPLE_JWT = {
    'ROTATE_REFRESH_TOKENS': True,
 }
 
-# Configuración de allauth (actualizar la sección existente)
-ACCOUNT_LOGIN_METHODS = {'email'}
-ACCOUNT_SIGNUP_FIELDS = ['email*', 'password1*', 'password2*']
+# Configuración de allauth
+ACCOUNT_AUTHENTICATION_METHOD = 'email'
+ACCOUNT_EMAIL_REQUIRED = True
+ACCOUNT_USERNAME_REQUIRED = False
+ACCOUNT_USER_MODEL_USERNAME_FIELD = None
 ACCOUNT_EMAIL_VERIFICATION = 'none'
 SOCIALACCOUNT_EMAIL_VERIFICATION = 'none'
-ACCOUNT_USER_MODEL_USERNAME_FIELD = None  # AGREGAR ESTA LÍNEA
-ACCOUNT_USERNAME_REQUIRED = False  # AGREGAR ESTA LÍNEA
 
 # Configuración de proveedores sociales
 SOCIALACCOUNT_PROVIDERS = {
@@ -88,14 +89,27 @@ REST_AUTH = {
 }
 
 # CORS Configuration (para React Native)
+CORS_ALLOW_ALL_ORIGINS = True  # Para desarrollo
 CORS_ALLOWED_ORIGINS = [
-   "http://localhost:3000",  # Para desarrollo web
+   "http://localhost:3000",
    "http://127.0.0.1:3000",
-   "http://localhost:8081",  # Para Expo
-   "http://192.168.0.11:8081",  # Tu IP local (ajustar según tu red)
+   "http://localhost:8081",
+   "http://127.0.0.1:8081",
+   "http://192.168.0.11:8081",  # Actualizar con tu IP real
 ]
 
-CORS_ALLOW_ALL_ORIGINS = True 
+# Headers adicionales para React Native
+CORS_ALLOW_HEADERS = [
+    'accept',
+    'accept-encoding',
+    'authorization',
+    'content-type',
+    'dnt',
+    'origin',
+    'user-agent',
+    'x-csrftoken',
+    'x-requested-with',
+]
 
 MIDDLEWARE = [
     'corsheaders.middleware.CorsMiddleware',
@@ -106,7 +120,7 @@ MIDDLEWARE = [
     'django.contrib.auth.middleware.AuthenticationMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
-    'allauth.account.middleware.AccountMiddleware',  # AGREGAR ESTA LÍNEA
+    'allauth.account.middleware.AccountMiddleware',
 ]
 
 ROOT_URLCONF = 'core.urls'
@@ -121,7 +135,7 @@ TEMPLATES = [
                'django.template.context_processors.request',
                'django.contrib.auth.context_processors.auth',
                'django.contrib.messages.context_processors.messages',
-               'django.template.context_processors.request',  # Requerido para allauth
+               'django.template.context_processors.request',
            ],
        },
    },
@@ -154,8 +168,8 @@ AUTH_PASSWORD_VALIDATORS = [
 ]
 
 # Internationalization
-LANGUAGE_CODE = 'en-us'
-TIME_ZONE = 'UTC'
+LANGUAGE_CODE = 'es-es'
+TIME_ZONE = 'America/Santiago'
 USE_I18N = True
 USE_TZ = True
 
@@ -164,3 +178,33 @@ DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
 # Usuario personalizado
 AUTH_USER_MODEL = 'users.User'
+
+# Gemini API Configuration
+GEMINI_API_KEY = os.getenv('GEMINI_API_KEY')
+
+# Logging
+LOGGING = {
+    'version': 1,
+    'disable_existing_loggers': False,
+    'handlers': {
+        'console': {
+            'class': 'logging.StreamHandler',
+        },
+    },
+    'root': {
+        'handlers': ['console'],
+        'level': 'INFO',
+    },
+    'loggers': {
+        'django': {
+            'handlers': ['console'],
+            'level': 'INFO',
+            'propagate': False,
+        },
+        'ai_analysis': {
+            'handlers': ['console'],
+            'level': 'DEBUG',
+            'propagate': False,
+        },
+    },
+}
