@@ -59,13 +59,12 @@ SIMPLE_JWT = {
    'ROTATE_REFRESH_TOKENS': True,
 }
 
-# Configuración de allauth
-ACCOUNT_AUTHENTICATION_METHOD = 'email'
-ACCOUNT_EMAIL_REQUIRED = True
-ACCOUNT_USERNAME_REQUIRED = False
-ACCOUNT_USER_MODEL_USERNAME_FIELD = None
+# Configuración de allauth (NUEVA SINTAXIS)
+ACCOUNT_LOGIN_METHODS = {'email'}
+ACCOUNT_SIGNUP_FIELDS = ['email*', 'password1*', 'password2*', 'first_name', 'last_name']
 ACCOUNT_EMAIL_VERIFICATION = 'none'
 SOCIALACCOUNT_EMAIL_VERIFICATION = 'none'
+
 
 # Configuración de proveedores sociales
 SOCIALACCOUNT_PROVIDERS = {
